@@ -6,6 +6,8 @@ Every AI-assisted session leaves something behind — pip and npm caches, orphan
 
 Contact: TomAsaTea@163.com
 
+> This isn't perfect — it will keep improving.
+
 ---
 
 ## Introduction
