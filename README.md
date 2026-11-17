@@ -1,110 +1,118 @@
 # After Collaborating with AI, Don't Forget to Clean Up the Leftover Caches
 
+[简体中文](./README.zh-CN.md) | English
+
 Every AI-assisted session leaves something behind — pip and npm caches, orphaned `node_modules`, stale `__pycache__`, and old temp files. **disk-clean** is a simple, safe Windows CLI that previews everything before touching anything, quarantines recoverable items instead of deleting them outright, and frees your disk in one command. It's built to be agent-friendly: preview first, apply only with explicit confirmation, and never touch your source code.
 
 Contact: TomAsaTea@163.com
 
 ---
 
-## 简介（中文）
+## Introduction
 
-简单 · 易用 · 高效 · 安全的 Windows 磁盘清理 CLI。设计参照 Agent-Reach：**单命令 + 可插拔"渠道"（清理类别）+ 预览默认安全 + doctor 体检 + 隔离区可恢复 + 一句话安装**。纯 PowerShell 5.1，零外部依赖。
+Simple · easy · efficient · safe Windows disk-cleanup CLI. Designed in the spirit of Agent-Reach: **one command + pluggable "channels" (cleanup categories) + preview-first safety + doctor health check + recoverable quarantine + one-line install**. Pure PowerShell 5.1, zero external dependencies.
 
-## 特性
+## Features
 
-- **简单**：一个文件 `disk-clean.ps1`，一个命令 `disk-clean`，子命令直白。
-- **易用**：`setup.ps1` 一键装好并加入 PATH；`preview` 先看、`apply -Confirm` 再删。
-- **高效**：整盘扫描一次、多渠道共用；只清缓存和可再生文件，不碰源文件。
-- **安全**：预览只读；删除必须确认；可恢复项一律进隔离区；白名单 + 系统目录排除。
+- **Simple**: one file `disk-clean.ps1`, one command `disk-clean`, intuitive subcommands.
+- **Easy**: `setup.ps1` installs everything in one step and adds it to PATH; `preview` first, then `apply -Confirm`.
+- **Efficient**: scans the whole disk once and shares the result across channels; only cleans caches and regenerable files, never source code.
+- **Safe**: preview is read-only; deletion requires confirmation; recoverable items always go to quarantine; whitelist + system-directory exclusion.
 
-## 安装（一条命令）
+## Install (one command)
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
 
-这一条命令自动完成四件事：安装 CLI 并加入 PATH、安装 MCP SDK、把 disk-clean 注册进 Claude Desktop 与 Claude Code CLI 的 MCP 配置（原配置自动备份为 `.bak`）。**重启 Claude** 后，对它说"帮我清理多余的缓存"即可；命令行则新开终端，`disk-clean setup` 生成配置后 `disk-clean preview`。
+This one command does four things: installs the CLI and adds it to PATH, installs the MCP SDK, and registers disk-clean into the MCP config of both Claude Desktop and Claude Code CLI (the original config is backed up as `.bak`). After **restarting Claude**, just say "help me clean up the leftover caches"; on the command line, open a new terminal and run `disk-clean setup` to generate the config, then `disk-clean preview`.
 
-## 用法
+## Usage
 
 ```
-disk-clean channels                     列出清理类别(渠道)
-disk-clean preview [-Channel 名称]       只扫描出报告，永不删除
-disk-clean apply [-Channel 名称] -Confirm 真正清理（必须 -Confirm）
-disk-clean restore [序号]                列出/恢复隔离区项目
-disk-clean status                        隔离区与最近报告
-disk-clean setup                         生成配置 + 体检 + 安装报告
-disk-clean doctor [-Json]                体检
-disk-clean add <渠道> / remove <渠道>    启用/停用清理类别
-disk-clean update                        升级指引
-disk-clean uninstall [-DryRun] [-All]    卸载（-All 连带删除隔离区，需 -Confirm）
-disk-clean skill-link <目录>             为另一个 AI 生成 skill 说明
+disk-clean channels                        List cleanup categories (channels)
+disk-clean preview [-Channel NAME]         Scan and report only — never deletes
+disk-clean apply [-Channel NAME] -Confirm  Actually clean (requires -Confirm)
+disk-clean restore [N]                     List / restore quarantined items
+disk-clean status                          Quarantine and latest report
+disk-clean setup                           Generate config + health check + install report
+disk-clean doctor [-Json]                  Health check
+disk-clean add <channel> / remove <channel> Enable / disable a cleanup category
+disk-clean update                          Upgrade guide
+disk-clean uninstall [-DryRun] [-All]      Uninstall (-All also removes quarantine; needs -Confirm)
+disk-clean skill-link <dir>                Generate a skill for another AI
 ```
 
-## 渠道（清理类别）
+## Channels (cleanup categories)
 
-| 渠道 | 级别 | 管理员 | 内容 |
+| Channel | Level | Admin | What it cleans |
 |---|---|---|---|
-| windows | default | 是 | 临时文件 / 回收站 / Windows Update 缓存 / 缩略图 / 崩溃转储 |
-| pip | default | 否 | pip 下载缓存 |
-| npm | default | 否 | npm / pnpm / yarn 缓存 |
-| node-modules | default | 否 | 孤儿 / 长期未用的 node_modules |
-| python-cache | default | 否 | `__pycache__` / `.pytest_cache` |
-| browser | optional | 否 | Chrome / Edge 缓存（默认关闭） |
-| deep | optional | 是 | DISM 组件清理（慢、彻底） |
+| windows | default | yes | Temp files / Recycle Bin / Windows Update cache / thumbnails / crash dumps |
+| pip | default | no | pip download cache |
+| npm | default | no | npm / pnpm / yarn cache |
+| node-modules | default | no | orphaned / long-unused node_modules |
+| python-cache | default | no | `__pycache__` / `.pytest_cache` |
+| browser | optional | no | Chrome / Edge cache (off by default) |
+| deep | optional | yes | DISM component cleanup (slow, thorough) |
 
-`windows` / `deep` 需要管理员终端（以管理员身份打开 PowerShell/终端）。
+`windows` / `deep` require an elevated terminal (open PowerShell/Terminal as Administrator).
 
-## 安全红线
+## Safety red lines
 
-1. `preview` 永远只读；`apply` 缺少 `-Confirm` 直接拒绝。
-2. 文件夹类目标（node_modules、`__pycache__` 等）一律**先进隔离区**、不真删；保留 `quarantine_days` 天（默认 7），`restore` 可恢复；C 盘目标尤其如此，永不真删。
-3. 白名单：只处理缓存目录与 `node_modules` / `__pycache__` / `.pytest_cache` 三种文件夹，其余跳过。
-4. 系统目录（`C:\Windows`、`Program Files`、`Program Files (x86)`、`ProgramData`、`AppData`）硬排除。
-5. 不删已安装的 Python 包，不动注册表 / `pagefile.sys` / `hiberfil.sys` / `Windows.old` / 浏览器登录。
+1. `preview` is always read-only; `apply` refuses to run without `-Confirm`.
+2. Folder-type targets (node_modules, `__pycache__`, etc.) always go **to quarantine first**, not deleted outright; kept for `quarantine_days` days (default 7), recoverable via `restore`; targets on drive C are never truly deleted.
+3. Whitelist: only cache directories and the three folder types `node_modules` / `__pycache__` / `.pytest_cache` are processed; everything else is skipped.
+4. System directories (`C:\Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`, `AppData`) are hard-excluded.
+5. Never removes installed Python packages, and never touches the registry / `pagefile.sys` / `hiberfil.sys` / `Windows.old` / browser logins.
 
-## 配置
+## Configuration
 
-`~\.disk-clean\config.json`（`disk-clean setup` 自动生成）：
+`~\.disk-clean\config.json` (auto-generated by `disk-clean setup`):
 
-- `quarantine_days` — 隔离区保留天数（默认 7）
-- `stale_node_modules_days` — node_modules 多少天未动算"过期"（默认 120）
-- `delete_orphan_node_modules` / `delete_stale_node_modules` — 是否处理孤儿/过期 node_modules
-- `scan_roots` — 扫描根目录（默认 `C:\`、`D:\`、`E:\`）
-- `exclude_dirs` — 排除目录（默认系统/软件目录）
-- `enabled_channels` — 启用的渠道
+- `quarantine_days` — how long quarantined items are kept (default 7)
+- `stale_node_modules_days` — days of inactivity before a node_modules counts as "stale" (default 120)
+- `delete_orphan_node_modules` / `delete_stale_node_modules` — whether to process orphaned / stale node_modules
+- `scan_roots` — scan root drives (default `C:\`, `D:\`, `E:\`)
+- `exclude_dirs` — excluded directories (system/software dirs by default)
+- `enabled_channels` — enabled channels
 
-## 隔离区与恢复
+## Quarantine & restore
 
-可恢复项被移动到 `盘符:\disk-clean-quarantine\`，每个文件夹旁有 `.origin.txt` 记原始位置。
+Recoverable items are moved to `DRIVE:\disk-clean-quarantine\`, with a `.origin.txt` next to each folder recording its original location.
 
-- 查看：`disk-clean restore`
-- 恢复第 3 项：`disk-clean restore 3`
-- 满 `quarantine_days` 天后，下次 `apply` 会真正删除过期项。
+- View: `disk-clean restore`
+- Restore item #3: `disk-clean restore 3`
+- After `quarantine_days` days, the next `apply` truly deletes expired items.
 
-## 给 AI 用（MCP，一句话清理）
+## For AI (MCP — one-line cleanup)
 
-`mcp/server.py` 把 disk-clean 暴露成 MCP 工具（preview / apply / restore / status / doctor / channels）。`setup.ps1` 会自动安装并注册，无需手动配置。注册目标有两处：Claude Desktop（`%APPDATA%\Claude\claude_desktop_config.json`）与 Claude Code CLI（`--scope user`，即 `~/.claude.json`）；装完可用 `claude mcp list` 验证（应显示 ✔ Connected）。
+`mcp/server.py` exposes disk-clean as MCP tools (preview / apply / restore / status / doctor / channels). `setup.ps1` installs and registers it automatically — no manual config needed. It registers to two places: Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`) and Claude Code CLI (`--scope user`, i.e. `~/.claude.json`). After install, verify with `claude mcp list` (should show ✔ Connected).
 
-> 安全红线由两层共同保证：MCP 的 `apply` 工具要求 `confirm=True`；底层 disk-clean 的 `apply` 也要求 `-Confirm`。`preview` 永远只读。
+> Safety is enforced on two layers: the MCP `apply` tool requires `confirm=True`, and the underlying disk-clean `apply` also requires `-Confirm`. `preview` is always read-only.
 
-另外 `disk-clean skill-link <目录>` 可生成供其它 AI 直接使用的 skill（含 SKILL.md + 脚本）。
+`disk-clean skill-link <dir>` can also generate a skill (SKILL.md + scripts) for another AI to use directly.
 
-## 目录结构
+## Directory structure
 
 ```
 disk-clean/
-├── disk-clean.ps1    # 主 CLI（唯一核心文件）
-├── setup.ps1         # 一键安装（CLI + MCP 桥 + 自动注册）
+├── disk-clean.ps1    # main CLI (the single core file)
+├── setup.ps1         # one-command install (CLI + MCP bridge + auto-register)
 ├── mcp/
-│   └── server.py     # MCP 服务器（供 AI 一句话清理）
-└── README.md
+│   └── server.py     # MCP server (one-line cleanup for AI)
+├── README.md         # this file (English)
+├── README.zh-CN.md   # 简体中文说明
+└── LICENSE
 ```
 
-## 卸载
+## Uninstall
 
 ```powershell
-disk-clean uninstall -DryRun    # 先看会删什么
-disk-clean uninstall            # 卸载（保留隔离区）
-disk-clean uninstall -All -Confirm   # 连同隔离区一起删
+disk-clean uninstall -DryRun        # preview what would be removed
+disk-clean uninstall                # uninstall (keeps quarantine)
+disk-clean uninstall -All -Confirm  # also delete the quarantine
 ```
+
+## License
+
+[MIT](./LICENSE)
