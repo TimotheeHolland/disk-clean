@@ -74,7 +74,7 @@ function Get-DefaultConfig {
         quarantine_days              = 7
         force_quarantine_system_drive = $true
         stale_node_modules_days      = 120
-        delete_orphan_node_modules   = $true
+        delete_orphan_node_modules   = $false
         delete_stale_node_modules    = $true
         scan_roots                   = @("C:\", "D:\", "E:\")
         exclude_dirs                 = @(
@@ -152,6 +152,9 @@ function Invoke-Quarantine {
     while (Test-Path -LiteralPath $dest) { $i++; $dest = "{0}_{1}" -f $base, $i }
     try {
         Move-Item -LiteralPath $Path -Destination $dest -Force -ErrorAction Stop
+        # 关键：Move-Item 会保留源目录的旧 LastWriteTime，导致 apply 末尾的“过期清理”
+        # 把刚隔离的项误判为过期而真删（丢失恢复记录）。这里把时间重置为当前时间。
+        try { (Get-Item -LiteralPath $dest -Force).LastWriteTime = Get-Date } catch {}
         try { Set-Content -LiteralPath "$dest.origin.txt" -Value $Path -Encoding UTF8 } catch {}
         return @{ ok = $true; from = $Path; to = $dest }
     } catch {
@@ -274,6 +277,10 @@ function Get-ChannelOps {
             foreach ($d in (Get-CachedDirs $Cfg)) {
                 if ($d.Name -ne "node_modules") { continue }
                 $parent = Split-Path $d.FullName -Parent
+                # 保护工具/运行时自带的 node_modules，避免误隔离（曾误伤 Node.js/npm/编辑器等）
+                if ($d.FullName -match '[\\/]node_global[\\/]node_modules$') { continue }   # npm 全局目录
+                if (Test-Path -LiteralPath (Join-Path $parent "node.exe")) { continue }    # Node.js 安装目录
+                if (Test-Path -LiteralPath (Join-Path $d.FullName ".package-lock.json")) { continue }  # 正规 npm 依赖树
                 $hasPkg = Test-Path -LiteralPath (Join-Path $parent "package.json")
                 $stale  = $d.LastWriteTime -lt (Get-Date).AddDays(-$Cfg.stale_node_modules_days)
                 $pick   = $false
