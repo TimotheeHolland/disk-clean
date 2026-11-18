@@ -85,5 +85,17 @@ def channels() -> str:
     return run("channels")
 
 
+@mcp.tool()
+def audit(min_size_mb: int = 0, stale_days: int = 90) -> str:
+    """Audit inactive large applications and portable tools for user review. Never deletes anything.
+    min_size_mb defaults to 0 (adaptive threshold based on free disk space)."""
+    args = []
+    if min_size_mb > 0:
+        args += ["-MinSizeMB", str(min_size_mb)]
+    if stale_days != 90:
+        args += ["-StaleDays", str(stale_days)]
+    return run("audit", args)
+
+
 if __name__ == "__main__":
     mcp.run()

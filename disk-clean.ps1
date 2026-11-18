@@ -29,7 +29,9 @@ param(
     [switch]$Confirm,
     [switch]$DryRun,
     [switch]$Json,
-    [switch]$All
+    [switch]$All,
+    [int]$MinSizeMB = 0,
+    [int]$StaleDays = 90
 )
 
 $ErrorActionPreference = "SilentlyContinue"
@@ -62,6 +64,45 @@ function Exit-Err {
     Write-Host ("error: " + $Code) -ForegroundColor Red
     if ($Hint) { Write-Host ("  hint: " + $Hint) -ForegroundColor Yellow }
     exit 1
+}
+
+# ------------------------------ 操作系统底层硬黑名单 (绝对红线) ------------------------------
+# 任何全盘扫描必须立即剪枝、跳过其子目录遍历，绝不触碰
+$script:SystemCriticalDirNames = @(
+    '$recycle.bin',
+    'system volume information',
+    'recovery',
+    'boot',
+    'efi',
+    'windowsapps'
+)
+
+$script:SystemCriticalFiles = @(
+    'pagefile.sys',
+    'swapfile.sys',
+    'hiberfil.sys',
+    'dumpstack.log',
+    'dumpstack.log.tmp',
+    'bootmgr',
+    'bootnxt'
+)
+
+function Get-SystemHardExcludes {
+    return @(
+        "$env:windir",                                         # C:\Windows 系统目录
+        "$env:ProgramData\Microsoft\Windows",                  # Windows 核心运行时
+        "$env:SystemDrive\Recovery",                           # 恢复分区
+        "$env:SystemDrive\Boot",                               # 引导目录
+        "$env:SystemDrive\EFI",                                # EFI 分区
+        "$env:ProgramFiles\WindowsApps",                       # UWP 隔离目录
+        "${env:ProgramFiles(x86)}\WindowsApps",
+        (Join-Path $env:USERPROFILE "AppData\Local\Microsoft\WindowsApps"),
+        (Join-Path $env:USERPROFILE "AppData\Local\Packages"), # UWP 现代应用包
+        (Join-Path $env:USERPROFILE "AppData\Local\Microsoft\Windows"),
+        (Join-Path $env:USERPROFILE "AppData\Roaming\Microsoft\Windows"),
+        "$env:SystemDrive\Users\Default",
+        "$env:SystemDrive\Users\All Users"
+    )
 }
 
 # ------------------------------ 配置 ------------------------------
@@ -165,19 +206,25 @@ function Invoke-Quarantine {
 # ------------------------------ 扫描 ------------------------------
 function Find-CacheDirs {
     param($Cfg)
+    $allExcludes = @()
+    if ($Cfg.exclude_dirs) { $allExcludes += $Cfg.exclude_dirs }
+    # 系统底层硬黑名单无条件强制合并，保证绝对安全
+    $allExcludes += (Get-SystemHardExcludes)
+
     $prefixes = @()
-    foreach ($ex in $Cfg.exclude_dirs) {
+    foreach ($ex in $allExcludes) {
         if ($ex) { $prefixes += $ex.TrimEnd('\').ToLowerInvariant() + '\' }
     }
-    $sysDrive = ($env:SystemDrive + '\').ToLowerInvariant()
     $results = New-Object System.Collections.Generic.List[object]
 
     function Recurse {
         param([string]$Path)
         $dirs = Get-ChildItem -LiteralPath $Path -Directory -Force -ErrorAction SilentlyContinue
         foreach ($d in $dirs) {
+            $nameLower = $d.Name.ToLowerInvariant()
+            # 命中最底层系统保留名称，立即剪枝跳过子目录
+            if ($nameLower -in $script:SystemCriticalDirNames) { continue }
             if ($d.FullName -like "*disk-clean*") { continue }
-            if ($d.Name -in @('$RECYCLE.BIN', '$Recycle.Bin', 'System Volume Information', 'Recovery')) { continue }
             if ($d.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
             if ($d.Attributes -band [System.IO.FileAttributes]::System) { continue }
             $p = $d.FullName.TrimEnd('\').ToLowerInvariant() + '\'
@@ -484,6 +531,17 @@ function Invoke-Apply {
     $file = Save-Report ($rep -join "`r`n")
     Write-Con ("")
     Write-Con ("完成。总计释放 " + (Format-Bytes $total) + "，报告已存 " + $file)
+
+    # 智能感知：若常规清理释放有限且磁盘依然紧张，附带一行温和提示
+    $tightDrive = $null
+    foreach ($d in [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady }) {
+        if (($d.AvailableFreeSpace / 1GB) -lt 15.0) { $tightDrive = $d; break }
+    }
+    if ($total -lt 500MB -and $tightDrive) {
+        Write-Con ""
+        Write-Con ("  提示: 本次常规缓存清理释放空间有限，且检测到 " + $tightDrive.Name + " 剩余空间较紧 (" + [math]::Round($tightDrive.AvailableFreeSpace / 1GB, 1) + " GB)。")
+        Write-Con "        如需排查长期未使用的沉睡软件或大文件，可随时运行: disk-clean audit"
+    }
 }
 
 function Invoke-Restore {
@@ -560,6 +618,132 @@ function Invoke-Doctor {
         Write-Con ("工具:       python=" + $tools.python + " pip=" + $tools.pip + " npm=" + $tools.npm + " pnpm=" + $tools.pnpm + " yarn=" + $tools.yarn)
         foreach ($d in $drives) { Write-Con ("磁盘:       " + $d.Name + " 剩余 " + $d.FreeGB + " GB") }
     }
+}
+
+function Invoke-Audit {
+    param(
+        [int]$MinMB = 0,
+        [int]$Days = 90
+    )
+    $isAdaptive = ($MinMB -le 0)
+    $minFreeGB = 999999.0
+    foreach ($d in [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady }) {
+        $freeGB = $d.AvailableFreeSpace / 1GB
+        if ($freeGB -lt $minFreeGB) { $minFreeGB = $freeGB }
+    }
+    if ($isAdaptive) {
+        # 建议1：自适应阈值。根据磁盘吃紧程度动态设定，空间越紧张越优先抓巨型目录
+        if ($minFreeGB -le 15.0) {
+            $MinMB = 1024   # 磁盘极度告急，优先抓 >= 1GB 的核心大块头
+        } elseif ($minFreeGB -le 30.0) {
+            $MinMB = 768
+        } else {
+            $MinMB = 500
+        }
+    }
+
+    Write-Con ""
+    Write-Con "=== disk-clean audit — 沉睡应用与大文件自主排查清单 ==="
+    if ($isAdaptive) {
+        Write-Con ("排查标准: 智能自适应阈值 >= " + (Format-Bytes ($MinMB * 1MB)) + "（检测到有磁盘剩余仅 " + [math]::Round($minFreeGB, 1) + " GB，优先抓大体量）且最后活跃早于 " + $Days + " 天前")
+    } else {
+        Write-Con ("排查标准: 用户指定阈值 >= " + (Format-Bytes ($MinMB * 1MB)) + " 且最后活跃早于 " + $Days + " 天前")
+    }
+    Write-Con "正在检索非系统核心及独立应用目录，请稍候..."
+
+    $hardPrefixes = @()
+    foreach ($ex in (Get-SystemHardExcludes)) {
+        if ($ex) { $hardPrefixes += $ex.TrimEnd('\').ToLowerInvariant() + '\' }
+    }
+
+    # 常见应用与工具目录搜寻点：
+    # 1. 各数据盘 (D:\, E:\, etc.) 根目录下的第一/二级目录
+    # 2. C:\Program Files, C:\Program Files (x86) 里的第三方应用
+    # 3. %LOCALAPPDATA%\Programs
+    $candidateRoots = @()
+    foreach ($drive in [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.IsReady }) {
+        if ($drive.Name.ToUpper() -ne "$env:SystemDrive\") {
+            $candidateRoots += $drive.Name
+        }
+    }
+    $candidateRoots += @(
+        "$env:ProgramFiles",
+        "${env:ProgramFiles(x86)}",
+        (Join-Path $env:LOCALAPPDATA "Programs")
+    )
+
+    # 系统级组件与基础驱动排除关键字 (绝不推荐排查)
+    $systemKeywords = @(
+        "microsoft", "windows", "common files", "driver", "nvidia", "intel", "amd",
+        "realtek", "directx", "vcredist", "dotnet", "package cache", "uninstall information"
+    )
+
+    $apps = New-Object System.Collections.Generic.List[object]
+    $cutoff = (Get-Date).AddDays(-$Days)
+
+    foreach ($root in $candidateRoots) {
+        if (-not (Test-Path -LiteralPath $root)) { continue }
+        $subDirs = Get-ChildItem -LiteralPath $root -Directory -Force -ErrorAction SilentlyContinue
+        foreach ($d in $subDirs) {
+            $nameLower = $d.Name.ToLowerInvariant()
+            if ($nameLower -in $script:SystemCriticalDirNames) { continue }
+            if ($d.FullName -like "*disk-clean*") { continue }
+            if ($d.Attributes -band [System.IO.FileAttributes]::ReparsePoint) { continue }
+            if ($d.Attributes -band [System.IO.FileAttributes]::System) { continue }
+
+            $p = $d.FullName.TrimEnd('\').ToLowerInvariant() + '\'
+            $skip = $false
+            foreach ($pre in $hardPrefixes) {
+                if ($p.StartsWith($pre)) { $skip = $true; break }
+            }
+            if ($skip) { continue }
+
+            # 过滤系统级组件
+            $isSys = $false
+            foreach ($kw in $systemKeywords) {
+                if ($nameLower.Contains($kw)) { $isSys = $true; break }
+            }
+            if ($isSys) { continue }
+
+            # 时间检查 (最后变动在指定天数之前)
+            if ($d.LastWriteTime -ge $cutoff) { continue }
+
+            # 计算体积
+            $size = Get-DirSize $d.FullName
+            $sizeMB = $size / 1MB
+            if ($sizeMB -ge $MinMB) {
+                $daysAgo = [int]((Get-Date) - $d.LastWriteTime).TotalDays
+                $apps.Add([PSCustomObject]@{
+                    Path         = $d.FullName
+                    Size         = $size
+                    LastModified = $d.LastWriteTime
+                    DaysAgo      = $daysAgo
+                })
+            }
+        }
+    }
+
+    Write-Con ""
+    if ($apps.Count -eq 0) {
+        Write-Con ("未发现体积超过 " + $MinMB + " MB 且早于 " + $Days + " 天未变动的应用目录。")
+        Write-Con ""
+        return
+    }
+
+    Write-Con ("发现 " + $apps.Count + " 个长期未活跃的大型应用/工具目录（仅供自主排查，默认绝不自动删除）：")
+    Write-Con ""
+    $i = 1
+    foreach ($app in ($apps | Sort-Object Size -Descending)) {
+        Write-Con (" [{0}] {1,9}  最后变动: {2:yyyy-MM-dd} ({3}天前)  {4}" -f $i, (Format-Bytes $app.Size), $app.LastModified, $app.DaysAgo, $app.Path)
+        $i++
+    }
+
+    Write-Con ""
+    Write-Con "---------------------------------------------------------------------"
+    Write-Con "安全提示："
+    Write-Con "* 以上为完整应用或工具目录，disk-clean 坚决不执行自动删除/隔离。"
+    Write-Con "* 请根据需要自主核对；如需卸载，建议优先运行自带卸载程序(如 unins000.exe)或系统“设置 -> 安装的应用”。"
+    Write-Con ""
 }
 
 function Invoke-Setup {
@@ -671,6 +855,7 @@ disk-clean  —  简单 · 易用 · 高效 · 安全 的 Windows 磁盘清理
   status                         隔离区与最近报告
   setup                          生成配置 + 体检 + 安装报告
   doctor [-Json]                 体检
+  audit [-MinSizeMB 500] [-StaleDays 90]  沉睡应用与大文件自主排查清单（仅排查，不删除）
   add <渠道> / remove <渠道>     启用/停用清理类别
   update                         升级指引
   uninstall [-DryRun] [-All]     卸载（-All 需 -Confirm）
@@ -690,6 +875,7 @@ switch -Regex ($Action.ToLower()) {
     "status"         { Invoke-Status }
     "setup"          { Invoke-Setup }
     "doctor"         { Invoke-Doctor }
+    "audit"          { Invoke-Audit -MinMB $MinSizeMB -Days $StaleDays }
     "^add$"          { Invoke-AddRemove -Name $Target -Add $true }
     "^remove$"       { Invoke-AddRemove -Name $Target -Add $false }
     "uninstall"      { Invoke-Uninstall }

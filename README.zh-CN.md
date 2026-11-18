@@ -39,6 +39,7 @@ disk-clean restore [序号]                列出/恢复隔离区项目
 disk-clean status                        隔离区与最近报告
 disk-clean setup                         生成配置 + 体检 + 安装报告
 disk-clean doctor [-Json]                体检
+disk-clean audit [-MinSizeMB 500] [-StaleDays 90] 沉睡应用与大文件排查清单（仅排查，不删除）
 disk-clean add <渠道> / remove <渠道>    启用/停用清理类别
 disk-clean update                        升级指引
 disk-clean uninstall [-DryRun] [-All]    卸载（-All 连带删除隔离区，需 -Confirm）

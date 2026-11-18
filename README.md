@@ -39,6 +39,7 @@ disk-clean restore [N]                     List / restore quarantined items
 disk-clean status                          Quarantine and latest report
 disk-clean setup                           Generate config + health check + install report
 disk-clean doctor [-Json]                  Health check
+disk-clean audit [-MinSizeMB 500] [-StaleDays 90] Audit inactive large apps (review only, never deletes)
 disk-clean add <channel> / remove <channel> Enable / disable a cleanup category
 disk-clean update                          Upgrade guide
 disk-clean uninstall [-DryRun] [-All]      Uninstall (-All also removes quarantine; needs -Confirm)
