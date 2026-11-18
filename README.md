@@ -1,120 +1,45 @@
-# After Collaborating with AI, Don't Forget to Clean Up the Leftover Caches
+# disk-clean
 
-[简体中文](./README.zh-CN.md) | English
+> A simple, safe, and efficient Windows disk cleanup CLI (native PowerShell 5.1, zero external dependencies, Agent-friendly).
 
-Every AI-assisted session leaves something behind — pip and npm caches, orphaned `node_modules`, stale `__pycache__`, and old temp files. **disk-clean** is a simple, safe Windows CLI that previews everything before touching anything, quarantines recoverable items instead of deleting them outright, and frees your disk in one command. It's built to be agent-friendly: preview first, apply only with explicit confirmation, and never touch your source code.
+English | [简体中文](./README.zh-CN.md)
 
-Contact: TomAsaTea@163.com
-
-> This isn't perfect — it will keep improving.
+Clean up leftover pip/npm caches, stale `__pycache__`, and temporary files after AI coding sessions. **disk-clean** previews before touching anything, requires explicit confirmation, and moves items to quarantine instead of instant deletion. It never touches your source code.
 
 ---
 
-## Introduction
-
-Simple · easy · efficient · safe Windows disk-cleanup CLI. Designed in the spirit of Agent-Reach: **one command + pluggable "channels" (cleanup categories) + preview-first safety + doctor health check + recoverable quarantine + one-line install**. Pure PowerShell 5.1, zero external dependencies.
-
-## Features
-
-- **Simple**: one file `disk-clean.ps1`, one command `disk-clean`, intuitive subcommands.
-- **Easy**: `setup.ps1` installs everything in one step and adds it to PATH; `preview` first, then `apply -Confirm`.
-- **Efficient**: scans the whole disk once and shares the result across channels; only cleans caches and regenerable files, never source code.
-- **Safe**: preview is read-only; deletion requires confirmation; recoverable items always go to quarantine; whitelist + system-directory exclusion.
-
-## Install (one command)
+## ⚡ Quick Install
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File setup.ps1
 ```
+Installs the CLI, adds it to PATH, sets up the MCP bridge, and registers it into Claude Desktop & Claude Code CLI. Run `disk-clean setup` in a new terminal, or ask Claude to "clean up leftover disk caches".
 
-This one command does four things: installs the CLI and adds it to PATH, installs the MCP SDK, and registers disk-clean into the MCP config of both Claude Desktop and Claude Code CLI (the original config is backed up as `.bak`). After **restarting Claude**, just say "help me clean up the leftover caches"; on the command line, open a new terminal and run `disk-clean setup` to generate the config, then `disk-clean preview`.
+---
 
-## Usage
+## 🛠️ Usage
 
-```
-disk-clean channels                        List cleanup categories (channels)
-disk-clean preview [-Channel NAME]         Scan and report only — never deletes
-disk-clean apply [-Channel NAME] -Confirm  Actually clean (requires -Confirm)
-disk-clean restore [N]                     List / restore quarantined items
-disk-clean status                          Quarantine and latest report
-disk-clean setup                           Generate config + health check + install report
-disk-clean doctor [-Json]                  Health check
-disk-clean audit [-MinSizeMB 500] [-StaleDays 90] Audit inactive large apps (review only, never deletes)
-disk-clean add <channel> / remove <channel> Enable / disable a cleanup category
-disk-clean update                          Upgrade guide
-disk-clean uninstall [-DryRun] [-All]      Uninstall (-All also removes quarantine; needs -Confirm)
-disk-clean skill-link <dir>                Generate a skill for another AI
+```bash
+disk-clean preview [-Channel <name>]        # Read-only preview (never modifies files)
+disk-clean apply [-Channel <name>] -Confirm # Actually clean (requires -Confirm)
+disk-clean restore [index]                  # List or restore quarantined items
+disk-clean status                           # Check quarantine holdings & latest report
+disk-clean doctor                           # Health check (admin rights, tools, disk space)
+disk-clean channels                         # List supported channels (windows/pip/npm/deep...)
+disk-clean audit [-MinSizeMB <size>]        # Audit inactive large apps (review only, never auto-deletes)
 ```
 
-## Channels (cleanup categories)
+---
 
-| Channel | Level | Admin | What it cleans |
-|---|---|---|---|
-| windows | default | yes | Temp files / Recycle Bin / Windows Update cache / thumbnails / crash dumps |
-| pip | default | no | pip download cache |
-| npm | default | no | npm / pnpm / yarn cache |
-| node-modules | default | no | orphaned / long-unused node_modules |
-| python-cache | default | no | `__pycache__` / `.pytest_cache` |
-| browser | optional | no | Chrome / Edge cache (off by default) |
-| deep | optional | yes | DISM component cleanup (slow, thorough) |
+## 🛡️ Safety Redlines & Features
 
-`windows` / `deep` require an elevated terminal (open PowerShell/Terminal as Administrator).
+1. **Read-Only Preview & Explicit Confirmation**: `preview` never modifies files; `apply` requires `-Confirm` to execute.
+2. **Quarantine First**: Target folders are moved to a same-drive quarantine for 7 days and can be restored anytime via `restore`.
+3. **System-Level Hard Blocklist**: Strictly excludes critical system paths (`C:\Windows`, `WindowsApps`, Volume Snapshots, Recovery, etc.) with early pruning during scans to ensure system stability.
+4. **Inactive App Audit with Adaptive Thresholds (New)**: `audit` dynamically sets size thresholds based on available disk space to uncover long-inactive heavy apps/tools, outputting a review list without auto-deleting.
+5. **Smart Low-Yield Sensing (New)**: When routine cache cleaning frees minimal space and disk remains tight, a gentle hint suggests auditing inactive large applications without unnecessary nagging.
 
-## Safety red lines
-
-1. `preview` is always read-only; `apply` refuses to run without `-Confirm`.
-2. Folder-type targets (node_modules, `__pycache__`, etc.) always go **to quarantine first**, not deleted outright; kept for `quarantine_days` days (default 7), recoverable via `restore`; targets on drive C are never truly deleted.
-3. Whitelist: only cache directories and the three folder types `node_modules` / `__pycache__` / `.pytest_cache` are processed; everything else is skipped.
-4. System directories (`C:\Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`, `AppData`) are hard-excluded.
-5. Never removes installed Python packages, and never touches the registry / `pagefile.sys` / `hiberfil.sys` / `Windows.old` / browser logins.
-
-## Configuration
-
-`~\.disk-clean\config.json` (auto-generated by `disk-clean setup`):
-
-- `quarantine_days` — how long quarantined items are kept (default 7)
-- `stale_node_modules_days` — days of inactivity before a node_modules counts as "stale" (default 120)
-- `delete_orphan_node_modules` / `delete_stale_node_modules` — whether to process orphaned / stale node_modules
-- `scan_roots` — scan root drives (default `C:\`, `D:\`, `E:\`)
-- `exclude_dirs` — excluded directories (system/software dirs by default)
-- `enabled_channels` — enabled channels
-
-## Quarantine & restore
-
-Recoverable items are moved to `DRIVE:\disk-clean-quarantine\`, with a `.origin.txt` next to each folder recording its original location.
-
-- View: `disk-clean restore`
-- Restore item #3: `disk-clean restore 3`
-- After `quarantine_days` days, the next `apply` truly deletes expired items.
-
-## For AI (MCP — one-line cleanup)
-
-`mcp/server.py` exposes disk-clean as MCP tools (preview / apply / restore / status / doctor / channels). `setup.ps1` installs and registers it automatically — no manual config needed. It registers to two places: Claude Desktop (`%APPDATA%\Claude\claude_desktop_config.json`) and Claude Code CLI (`--scope user`, i.e. `~/.claude.json`). After install, verify with `claude mcp list` (should show ✔ Connected).
-
-> Safety is enforced on two layers: the MCP `apply` tool requires `confirm=True`, and the underlying disk-clean `apply` also requires `-Confirm`. `preview` is always read-only.
-
-`disk-clean skill-link <dir>` can also generate a skill (SKILL.md + scripts) for another AI to use directly.
-
-## Directory structure
-
-```
-disk-clean/
-├── disk-clean.ps1    # main CLI (the single core file)
-├── setup.ps1         # one-command install (CLI + MCP bridge + auto-register)
-├── mcp/
-│   └── server.py     # MCP server (one-line cleanup for AI)
-├── README.md         # this file (English)
-├── README.zh-CN.md   # 简体中文说明
-└── LICENSE
-```
-
-## Uninstall
-
-```powershell
-disk-clean uninstall -DryRun        # preview what would be removed
-disk-clean uninstall                # uninstall (keeps quarantine)
-disk-clean uninstall -All -Confirm  # also delete the quarantine
-```
+---
 
 ## License
 
