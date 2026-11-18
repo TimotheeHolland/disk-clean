@@ -1,7 +1,6 @@
-# disk-clean
+# After collaborating with AI, don't forget to clean up unused caches and image files
 
-> After collaborating with AI, don't forget to clean up unused caches and image files.  
-> A simple, safe, and efficient Windows disk cleanup CLI (native PowerShell 5.1, zero external dependencies, Agent-friendly).
+> **disk-clean**: A simple, safe, and efficient Windows disk cleanup CLI (native PowerShell 5.1, zero external dependencies, Agent-friendly).
 
 English | [简体中文](./README.zh-CN.md)
 

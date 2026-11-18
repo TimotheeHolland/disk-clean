@@ -1,7 +1,6 @@
-# disk-clean
+# 和 AI 协作后，别忘了清理掉不用的缓存和镜像文件
 
-> 和 AI 协作后，别忘了清理掉不用的缓存和镜像文件。  
-> 简单 · 安全 · 高效的 Windows 磁盘清理 CLI（原生 PowerShell 5.1，零外部依赖，Agent 友好）。
+> **disk-clean**：简单 · 安全 · 高效的 Windows 磁盘清理 CLI（原生 PowerShell 5.1，零外部依赖，Agent 友好）。
 
 [English](./README.md) | 简体中文
 
