@@ -1,5 +1,6 @@
 # disk-clean
 
+> After collaborating with AI, don't forget to clean up unused caches and image files.  
 > A simple, safe, and efficient Windows disk cleanup CLI (native PowerShell 5.1, zero external dependencies, Agent-friendly).
 
 English | [简体中文](./README.zh-CN.md)
@@ -40,6 +41,9 @@ disk-clean audit [-MinSizeMB <size>]        # Audit inactive large apps (review 
 5. **Smart Low-Yield Sensing (New)**: When routine cache cleaning frees minimal space and disk remains tight, a gentle hint suggests auditing inactive large applications without unnecessary nagging.
 
 ---
+
+> It's not perfect yet, but will be continuously maintained and updated.  
+> Contact: TimmyFF63@gmail.com
 
 ## License
 
